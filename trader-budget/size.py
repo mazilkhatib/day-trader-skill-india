@@ -4,16 +4,17 @@
 Default mode: sizes ONE day trade from trader/plan.json (written by
 trader-exit) to your budget and your max loss per trade, then writes one
 bracket order (entry, stop-loss, take-profit) to trader/orders.json in the
-shape of Alpaca's place_stock_order. It never places anything: trader-risk
+same field names as the US original (Alpaca's place_stock_order), so
+trader-risk and trader-broker read it unchanged. It never places anything: trader-risk
 checks the order and trader-broker asks you yes or no.
 
     python3 size.py                                  # trader/plan.json + trader/config.json
     python3 size.py --write                          # write trader/orders.json
     python3 size.py --limit                          # a limit order at the plan's entry
-    python3 size.py --limit 364.00 --write           # a limit order at 364.00
-    python3 size.py --now "2026-10-19 10:15" --json  # pin the clock (New York time)
+    python3 size.py --limit 1482.00 --write           # a limit order at 364.00
+    python3 size.py --now "2026-10-19 10:15" --json  # pin the clock (IST)
 
-How many shares. Whole shares only: Alpaca takes no fractions in a bracket.
+How many shares. Whole shares only: NSE trades whole shares.
 
     shares = floor of the smallest of
       max loss       max_loss_per_trade_usd / risk per share (entry minus stop)
@@ -43,7 +44,7 @@ list of stocks by weight.
                    anything over the cap is shared out to the others by
                    weight, again and again until nobody is over
   4. min order     a slice under min_order_usd is dropped and its weight
-                   shared out, so you never place a $2 order
+                   shared out, so you never place a Rs 2 order
   5. rounding      whole dollars by default (--cents for cents); the rounding
                    dollar goes to the biggest position that is not capped
   6. whole shares  with --whole-shares or "fractional": false; needs prices
@@ -63,17 +64,17 @@ DEFAULTS = {
     "budget": None,
     "cash_buffer_pct": 10,
     "max_position_pct": 75,
-    "max_order_usd": 4000,
-    "min_order_usd": 5,
-    "max_loss_per_trade_usd": 50,
-    "max_daily_loss_usd": 150,
+    "max_order_usd": 80000,
+    "min_order_usd": 500,
+    "max_loss_per_trade_usd": 500,
+    "max_daily_loss_usd": 1500,
     "max_trades_per_day": 3,
     "max_orders_per_day": 10,
     "min_reward_risk": 1.0,
     "require_stop": True,
-    "no_entries_before": "09:45",
-    "no_entries_after": "15:30",
-    "flat_by": "15:55",
+    "no_entries_before": "09:30",
+    "no_entries_after": "14:45",
+    "flat_by": "15:15",
     "fractional": False,
     "broker": "alpaca",
     "paper": True,
@@ -92,48 +93,32 @@ class SizeError(Exception):
     pass
 
 
-# ---------------------------------------------------------------- time (New York, no tz files)
+# ---------------------------------------------------------------- time (IST, no tz files)
 
-def _nth_sunday(year, month, n):
-    d = datetime.date(year, month, 1)
-    d += datetime.timedelta(days=(6 - d.weekday()) % 7)
-    return d + datetime.timedelta(weeks=n - 1)
-
-
-def eastern_offset(utc):
-    """Hours from UTC for New York: -4 in daylight time, -5 otherwise.
-    DST runs from 2:00 a.m. on the second Sunday of March to 2:00 a.m. on the
-    first Sunday of November (US rule since 2007)."""
-    y = utc.year
-    start = datetime.datetime.combine(_nth_sunday(y, 3, 2), datetime.time(7, 0))   # 2:00 EST
-    end = datetime.datetime.combine(_nth_sunday(y, 11, 1), datetime.time(6, 0))    # 2:00 EDT
-    naive = utc.replace(tzinfo=None)
-    return -4 if start <= naive < end else -5
+def ist_offset(utc):
+    """Hours from UTC for India (IST): always +5:30. India has no daylight time."""
+    return 5.5
 
 
-def to_eastern(utc):
-    return utc.replace(tzinfo=None) + datetime.timedelta(hours=eastern_offset(utc))
+def to_ist(utc):
+    return utc.replace(tzinfo=None) + datetime.timedelta(hours=ist_offset(utc))
 
 
-def eastern_to_utc(local):
-    for off in (-4, -5):
-        utc = local - datetime.timedelta(hours=off)
-        if eastern_offset(utc) == off:
-            return utc
-    return local + datetime.timedelta(hours=5)
+def ist_to_utc(local):
+    return local - datetime.timedelta(hours=ist_offset(local))
 
 
 def parse_now(text):
-    """ISO time -> naive UTC. A time without an offset is taken as New York time."""
+    """ISO time -> naive UTC. A time without an offset is taken as IST."""
     if not text:
         return datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0, tzinfo=None)
     t = text.strip().replace("Z", "+00:00")
     try:
         dt = datetime.datetime.fromisoformat(t)
     except ValueError:
-        raise SizeError("--now wants a time like \"2026-10-19 10:15\" (New York) or ...Z (UTC)")
+        raise SizeError("--now wants a time like \"2026-10-19 10:15\" (IST) or ...Z (UTC)")
     if dt.tzinfo is None:
-        return eastern_to_utc(dt)
+        return ist_to_utc(dt)
     return (dt - dt.utcoffset()).replace(tzinfo=None)
 
 
@@ -167,10 +152,21 @@ def read_json(path, what):
         raise SizeError("%s is not valid JSON: %s" % (path, e))
 
 
+def inr_aliases(cfg):
+    """Rupee names for the money limits: "max_loss_per_trade_inr" and friends
+    are read as the internal "..._usd" keys (the field names are kept from the
+    US original so every tool shares one contract). An _inr key wins."""
+    out = dict(cfg or {})
+    for k in list(out):
+        if k.endswith("_inr"):
+            out[k[:-4] + "_usd"] = out.pop(k)
+    return out
+
+
 def load_config(path):
     cfg = dict(DEFAULTS)
     if path and os.path.exists(path):
-        cfg.update(read_json(path, "config"))
+        cfg.update(inr_aliases(read_json(path, "config")))
     return cfg
 
 
@@ -296,8 +292,8 @@ def _num(x):
 def money(x):
     x = float(x)
     if abs(x - round(x)) < 0.005:
-        return "$" + "{:,.0f}".format(round(x))
-    return "$" + "{:,.2f}".format(x)
+        return "Rs " + "{:,.0f}".format(round(x))
+    return "Rs " + "{:,.2f}".format(x)
 
 
 # ---------------------------------------------------------------- plan mode (the default)
@@ -308,7 +304,7 @@ def size_trade(plan, cfg, budget=None, limit=None, price=None, cash=None, today=
     limit  the limit price for a limit order (None = market)
     price  a FRESH latest price; a market order is sized at the higher of it and the plan's entry
     cash   the cash in trader/portfolio.json, if there is one
-    today  New York date (YYYY-MM-DD); a plan for another day is refused"""
+    today  IST date (YYYY-MM-DD); a plan for another day is refused"""
     c = dict(DEFAULTS)
     c.update(cfg or {})
     if not isinstance(plan, dict):
@@ -320,7 +316,7 @@ def size_trade(plan, cfg, budget=None, limit=None, price=None, cash=None, today=
     if side != "buy":
         raise SizeError("this pack sizes long (buy) day trades only; the plan says %r" % side)
     if today and plan.get("date") and str(plan["date"]) != today:
-        raise SizeError("the plan is for %s and today is %s in New York: make a new plan with trader-exit"
+        raise SizeError("the plan is for %s and today is %s in IST: make a new plan with trader-exit"
                         % (plan["date"], today))
     entry_plan, stop, target = _f(plan.get("entry")), _f(plan.get("stop")), _f(plan.get("target"))
     for name, v in (("entry", entry_plan), ("stop", stop), ("target", target)):
@@ -477,7 +473,7 @@ def plan_report(s, order, notes=()):
                  % (order["qty"], order["symbol"], how, order["take_profit_limit_price"],
                     order["stop_loss_stop_price"]))
     if s["flat_by"]:
-        lines.append("Flat by %s New York: anything still open then gets closed (trader-alerts rings, "
+        lines.append("Flat by %s IST: anything still open then gets closed (trader-alerts rings, "
                      "trader-broker flatten)." % s["flat_by"])
     lines.append("")
     lines.append("Next: trader-risk checks it, then trader-broker asks you yes or no.")
@@ -609,7 +605,7 @@ def size(rows, cfg, budget=None, prices=None, whole=None, cents=False, top=None)
         raise SizeError("no budget: pass --budget or set \"budget\" in trader/config.json")
     buf_pct = float(cfg.get("cash_buffer_pct", 10))
     cap_pct = float(cfg.get("max_position_pct", 25))
-    min_order = float(cfg.get("min_order_usd", 5) or 0)
+    min_order = float(cfg.get("min_order_usd", 500) or 0)
     if not 0 <= buf_pct < 100:
         raise SizeError("cash_buffer_pct must be between 0 and 100")
     if not 0 < cap_pct <= 100:
@@ -651,10 +647,10 @@ def size(rows, cfg, budget=None, prices=None, whole=None, cents=False, top=None)
             break
         worst = min(small, key=lambda r: (r["source_weight"], r["ticker"]))
         if whole and shares is not None and shares[worst["ticker"]] == 0 and prices.get(worst["ticker"], 0) > 0:
-            reason = ("one share costs $%s, more than its slice; it cannot be bought in whole shares"
+            reason = ("one share costs Rs %s, more than its slice; it cannot be bought in whole shares"
                       % _num(prices[worst["ticker"]]))
         else:
-            reason = "its slice ($%s) is under your $%s minimum order" % (
+            reason = "its slice (Rs %s) is under your Rs %s minimum order" % (
                 _num(dollars[worst["ticker"]]), _num(min_order))
         dropped.append({"ticker": worst["ticker"], "reason": reason})
         keep = [r for r in keep if r["ticker"] != worst["ticker"]]
@@ -774,7 +770,7 @@ def write_orders(path, orders, cfg, source="", now_utc=None):
 
 def run_plan(a, cfg):
     now = parse_now(a.now)
-    today = to_eastern(now).date().isoformat()
+    today = to_ist(now).date().isoformat()
     plan = read_json(a.plan, "plan (run trader-exit first, or use --weights for a split)")
     limit = None
     if a.limit is not None:
@@ -793,12 +789,12 @@ def run_plan(a, cfg):
         if p is not None and fresh:
             price = p
             if round_cent(p) > round_cent(_f(plan.get("entry")) or 0):
-                notes.append("%s last %s (as of %s New York) is above the plan's entry %s, so the risk "
-                             "is bigger: sized at %s." % (sym, _price(p), to_eastern(t).strftime("%H:%M"),
+                notes.append("%s last %s (as of %s IST) is above the plan's entry %s, so the risk "
+                             "is bigger: sized at %s." % (sym, _price(p), to_ist(t).strftime("%H:%M"),
                                                           _price(plan.get("entry")), _price(p)))
         elif p is not None:
             notes.append("%s in %s is %s: not used (older than %d minutes). Sized at the plan's entry."
-                         % (sym, ppath, ("from " + to_eastern(t).strftime("%Y-%m-%d %H:%M") + " New York")
+                         % (sym, ppath, ("from " + to_ist(t).strftime("%Y-%m-%d %H:%M") + " IST")
                             if t else "undated", FRESH_MINUTES))
     cash = None
     if a.portfolio and os.path.exists(a.portfolio):
@@ -854,7 +850,7 @@ def main(argv=None):
     ap.add_argument("--prices", help="prices JSON (default trader/prices.json if it exists)")
     ap.add_argument("--portfolio", default="trader/portfolio.json",
                     help="your account; its cash caps the size if it exists")
-    ap.add_argument("--now", help="pretend it is this New York time, e.g. \"2026-10-19 10:15\"")
+    ap.add_argument("--now", help="pretend it is this IST, e.g. \"2026-10-19 10:15\"")
     ap.add_argument("--write", nargs="?", const="trader/orders.json", metavar="PATH",
                     help="write the proposed order (default trader/orders.json)")
     ap.add_argument("--json", action="store_true", help="print JSON instead of the report")

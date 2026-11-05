@@ -5,13 +5,19 @@ description: >-
   moves it: Yahoo Finance headlines per ticker, each company's 8-K filings on
   SEC EDGAR (earnings, CEO changes, deals, restatements, bankruptcy) and how
   far each stock is from yesterday's close. Shows only what is new since the
-  last check, newest first, in New York time, tags each item (earnings,
+  last check, newest first, in IST, tags each item (earnings,
   analyst, deal, halt, regulatory, macro...) and never repeats one. Use when
   the user says "any news on TSLA", "why is this moving", "what's the news on
   my watchlist", "morning briefing", "pre-market news", "monitor the news",
   "did anything break", "check the 8-Ks", or after /trader-scanner finds setups.
 argument-hint: "[tickers]"
 ---
+
+> **India version (NSE).** Times are IST (UTC+5:30, no daylight saving); the session is 9:15 to
+> 15:30, entries 09:30 to 14:45, flat by 15:15 (before brokers' MIS auto square-off). Tickers are
+> plain NSE symbols (RELIANCE, M&M, BAJAJ-AUTO; Yahoo gets RELIANCE.NS). Money is in rupees (Rs);
+> config limits can be written as `_inr` keys (`max_loss_per_trade_inr`). Prices round to the NSE
+> tick. Orders are placed by you in your broker app (`"broker": "manual"`, the default).
 
 # trader-news
 
@@ -38,7 +44,7 @@ python3 "${CLAUDE_SKILL_DIR}/news.py" --no-sec --json
 | `trader/portfolio.json` | what you hold (trader-broker records fills there) |
 | Yahoo Finance headline RSS | `https://feeds.finance.yahoo.com/rss/2.0/headline?s=TSLA&region=US&lang=en-US` |
 | Yahoo Finance chart endpoint | the last price against yesterday's close (unofficial, can lag) |
-| SEC EDGAR company Atom feed | 8-K by default (`--forms 8-K,10-Q` for more); needs `sec_user_agent` in `trader/config.json` or `SEC_USER_AGENT`, else filings are skipped with a note |
+| SEC EDGAR company Atom feed (US-listed only, with `--sec`) | 8-K by default (`--forms 8-K,10-Q` for more); needs `sec_user_agent` in `trader/config.json` or `SEC_USER_AGENT`, else filings are skipped with a note |
 | `trader/state/news.json` | what has been shown (kept 30 days) and each ticker's CIK |
 
 ## The rules
@@ -86,7 +92,7 @@ Wall Street Ahead of Earnings" (8:04, earnings, deal), "Tech Stock Rebound
 Nudges US Equity Futures Mostly Higher Pre-Bell" (8:02, macro). The brief:
 "Tesla reports this week, so the stock can gap overnight; today's trade is
 in and out before the close. No new 8-K." At 10:52 the price line reads
-`TSLA 366.48 +3.31% vs yesterday's close 354.72 at 10:52 ET  MOVING`. When a
+`TSLA 366.48 +3.31% vs yesterday's close 354.72 at 10:52 IST  MOVING`. When a
 ticker has no news, say so rather than padding the brief.
 
 ## What it never does

@@ -17,6 +17,12 @@ description: >-
 argument-hint: "[order number]"
 ---
 
+> **India version (NSE).** Times are IST (UTC+5:30, no daylight saving); the session is 9:15 to
+> 15:30, entries 09:30 to 14:45, flat by 15:15 (before brokers' MIS auto square-off). Tickers are
+> plain NSE symbols (RELIANCE, M&M, BAJAJ-AUTO; Yahoo gets RELIANCE.NS). Money is in rupees (Rs);
+> config limits can be written as `_inr` keys (`max_loss_per_trade_inr`). Prices round to the NSE
+> tick. Orders are placed by you in your broker app (`"broker": "manual"`, the default).
+
 # trader-broker
 
 The Order Executor is the only skill in this pack that can lead to a real
@@ -43,7 +49,7 @@ python3 "${CLAUDE_SKILL_DIR}/ticket.py" log
 
 `ticket.py` never talks to a broker. It renders tickets, checks that a reply
 is a real yes for that order, builds the flatten ticket, and keeps the log in
-`trader/state/broker.json`. `--now "2026-10-19 10:15"` pins the clock (New York time).
+`trader/state/broker.json`. `--now "2026-10-19 10:15"` pins the clock (IST).
 
 ## What it reads and writes
 
@@ -55,7 +61,26 @@ is a real yes for that order, builds the flatten ticket, and keeps the log in
 | `trader/portfolio.json` | cash and shares, updated by `fill` and by `result --filled-qty` |
 | `trader/plan.json` | the flat-by time for `flatten` |
 
-## Setup A: Alpaca (official MCP server, Claude Desktop)
+## India default: manual (`"broker": "manual"`)
+
+No Indian broker connector is wired in yet, so `show` prints each order as
+the legs to enter yourself in Kite, Dhan, Upstox or any NSE broker app:
+
+1. BUY qty SYMBOL, MARKET (or LIMIT), product **MIS / Intraday**
+2. once it fills: SELL qty SYMBOL, **SL-M** at the stop
+3. and: SELL qty SYMBOL, **LIMIT** at the target; when one fills, cancel the
+   other (or use one GTT OCO order if your broker offers it)
+
+Then record it: `ticket.py result --index 1 --status placed --filled-qty N
+--filled-price P`, and `ticket.py fill` for the exit. That log is what
+trader-risk reads for the day's trade count and loss. SEBI's retail algo
+framework puts rules on automated orders through a broker API: check with
+your broker before wiring one in.
+
+The two setups below are the US original's (Alpaca, Interactive Brokers).
+They do not trade NSE stocks; they stay for reference.
+
+## Setup A: Alpaca (official MCP server, Claude Desktop, US stocks only)
 
 Alpaca's own server is github.com/alpacahq/alpaca-mcp-server (MIT). It runs on
 the user's computer inside Claude Desktop. It is not in Claude's connector
@@ -159,7 +184,7 @@ that draft orders to Needs approval too.
   (`alerts.py add --from-plan`). The bracket's own orders do the stopping.
 - When the stop-loss or the take-profit fills, record it:
   `ticket.py fill --symbol TSLA --side sell --qty 8 --price 358.32`.
-- By `flat_by` (15:55 New York), anything still open gets closed:
+- By `flat_by` (15:15 IST), anything still open gets closed:
   1. Ask Alpaca how many shares are held: `get_open_position` (read only).
   2. `ticket.py flatten --symbol TSLA --qty 8` writes a market sell for those
      shares to `trader/orders.json`.
@@ -178,8 +203,8 @@ ORDER 1 of 1, PAPER account, Alpaca
   BUY 8 TSLA, market, good for today
   stop-loss 358.32
   take-profit 370.04
-  max loss about $46.88 if the stop fills at 358.32 (it can fill worse in a fast market)
-  why: opening-range breakout on TSLA: 8 shares, bound by your $50 max loss per trade (8 x 5.86 = $46.88 at the stop)
+  max loss about Rs 46.88 if the stop fills at 358.32 (it can fill worse in a fast market)
+  why: opening-range breakout on TSLA: 8 shares, bound by your Rs 50 max loss per trade (8 x 5.86 = Rs 46.88 at the stop)
   READY: trader-risk PASS, waiting for your yes
   Claude will call place_stock_order with exactly:
     {"symbol": "TSLA", "side": "buy", "qty": "8", "type": "market", "time_in_force": "day",

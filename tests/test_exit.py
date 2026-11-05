@@ -1,5 +1,6 @@
 """trader-exit tests. Bars for the ATR stop reuse tests/fixtures/trader-entry/
-(TSLA's real Oct 19 2026 five-minute bars, see test_entry.py)."""
+(TSLA's real Oct 19 2026 five-minute bars re-timed onto an NSE session, see test_entry.py).
+Prices from 250 to 1,000 trade on NSE's 0.05 tick, so stops floor and targets round to 0.05."""
 
 import io
 import json
@@ -19,15 +20,15 @@ TSLA = os.path.join(FIX, "trader-entry", "TSLA-2026-10-19-5m.json")
 
 # trader/plan.json for the reel, exactly as the contract writes it
 REEL_PLAN = {"created_by": "trader-exit", "symbol": "TSLA", "side": "buy", "date": "2026-10-19", "setup": "orb",
-             "entry": 364.18, "entry_time": "10:15 AM", "entry_bar": 8, "interval": "5m",
+             "entry": 364.18, "entry_time": "10:00 AM", "entry_bar": 8, "interval": "5m",
              "opening_range": {"high": 362.18, "low": 354.47, "minutes": 15},
-             "stop": 358.32, "stop_rule": "or_mid", "stop_label": "opening-range midpoint",
-             "target": 370.04, "target_r": 1.0, "target_label": "1R (one times the risk)",
-             "risk_per_share": 5.86, "reward_risk": 1.0, "flat_by": "15:55"}
+             "stop": 358.30, "stop_rule": "or_mid", "stop_label": "opening-range midpoint",
+             "target": 370.05, "target_r": 1.0, "target_label": "1R (one times the risk)",
+             "risk_per_share": 5.88, "reward_risk": 1.0, "flat_by": "15:15"}
 REEL_ENTRY = {"created_by": "trader-entry", "symbol": "TSLA", "setup": "orb", "side": "buy", "date": "2026-10-19",
-              "status": "triggered", "time": "10:15 AM", "bar_start": "10:10", "bar_index": 8, "price": 364.18,
+              "status": "triggered", "time": "10:00 AM", "bar_start": "09:55", "bar_index": 8, "price": 364.18,
               "level": 362.18, "interval": "5m", "opening_range": {"high": 362.18, "low": 354.47, "minutes": 15},
-              "source": "yahoo", "checked_at": "2026-10-19T14:15:00Z"}
+              "source": "yahoo", "checked_at": "2026-10-19T04:30:00Z"}
 
 
 def run(mod, argv):
@@ -46,29 +47,29 @@ def c(entry_px, stop, target="2R", oh=362.18, ol=354.47, atr=None, n=None):
 class Math(unittest.TestCase):
     def test_the_reel_or_mid_1r(self):
         p = c(364.18, "or-mid", "1R")
-        self.assertEqual(p["stop"], Decimal("358.32"))           # floor(358.325)
-        self.assertEqual(p["risk"], Decimal("5.86"))
-        self.assertEqual(p["target"], Decimal("370.04"))
+        self.assertEqual(p["stop"], Decimal("358.30"))           # 358.325 floored to the 0.05 tick
+        self.assertEqual(p["risk"], Decimal("5.88"))
+        self.assertEqual(p["target"], Decimal("370.05"))          # 370.06 rounded to the 0.05 tick
         self.assertEqual(p["reward_risk"], Decimal("1.00"))
         self.assertEqual(p["target_label"], "1R (one times the risk)")
-        self.assertIn("rounded down", p["stop_detail"])
+        self.assertIn("rounded down to the 0.05 tick", p["stop_detail"])
 
     def test_the_default_2r(self):
         p = c(364.18, "or-mid")
-        self.assertEqual(p["target"], Decimal("375.90"))
+        self.assertEqual(p["target"], Decimal("375.95"))
         self.assertEqual(p["target_label"], "2R (two times the risk)")
 
     def test_raw_yahoo_floats_give_the_same_cents(self):
         p = c(364.1759948730469, "or-mid", "1R", 362.17999267578125, 354.4700012207031)
-        self.assertEqual((p["entry"], p["stop"], p["target"]), (Decimal("364.18"), Decimal("358.32"), Decimal("370.04")))
+        self.assertEqual((p["entry"], p["stop"], p["target"]), (Decimal("364.18"), Decimal("358.30"), Decimal("370.05")))
 
     def test_other_stops(self):
         p = c(364.18, "or-low")
-        self.assertEqual((p["stop"], p["risk"], p["target"]), (Decimal("354.47"), Decimal("9.71"), Decimal("383.60")))
-        p = c(364.18, "price:358.329")
-        self.assertEqual(p["stop"], Decimal("358.32"))              # rounds away from the entry
+        self.assertEqual((p["stop"], p["risk"], p["target"]), (Decimal("354.45"), Decimal("9.73"), Decimal("383.65")))
+        p = c(364.18, "price:358.349")
+        self.assertEqual(p["stop"], Decimal("358.30"))              # rounds away from the entry, to the tick
         p = c(364.18, "pct:1")
-        self.assertEqual((p["stop"], p["risk"], p["target"]), (Decimal("360.53"), Decimal("3.65"), Decimal("371.48")))
+        self.assertEqual((p["stop"], p["risk"], p["target"]), (Decimal("360.50"), Decimal("3.68"), Decimal("371.55")))
         p = c(364.18, "atr:1.5", atr=3.2181, n=9)
         self.assertEqual(p["stop"], Decimal("359.35"))              # 364.18 - 4.82715 = 359.35285
         self.assertEqual(p["stop_label"], "1.5 x ATR(9) under the entry")
@@ -83,7 +84,7 @@ class Math(unittest.TestCase):
         self.assertEqual(p["target_r"], Decimal("1.33"))
 
     def test_refusals_say_why(self):
-        cases = [("price:364.18", "2R", "at or above the entry"),
+        cases = [("price:364.20", "2R", "at or above the entry"),
                  ("price:365", "2R", "at or above the entry"),
                  ("or-mid", "price:364", "at or below the entry"),
                  ("price:364.01", "2R", "too tight to survive the spread"),
@@ -92,8 +93,8 @@ class Math(unittest.TestCase):
             with self.assertRaises(exitp.PlanError) as cm:
                 c(364.18, stop, target)
             self.assertIn(why, str(cm.exception), stop)
-        # 0.05% of 364.18 is 0.182: a $0.19 risk is allowed, $0.18 is not
-        self.assertEqual(c(364.18, "price:363.99")["risk"], Decimal("0.19"))
+        # 0.05% of 364.18 is 0.182: 363.99 floors to 363.95 on the tick, a Rs 0.23 risk, allowed
+        self.assertEqual(c(364.18, "price:363.99")["risk"], Decimal("0.23"))
         with self.assertRaises(exitp.PlanError):
             c(364.18, "price:364.00")
         with self.assertRaises(exitp.PlanError):
@@ -113,7 +114,7 @@ class Math(unittest.TestCase):
         ch = exitp.load_chart("TSLA", "5m", None, TSLA)
         day = exitp.datetime.date(2026, 10, 19)
         bars = exitp.session_bars(ch, day, "5m", upto_slot=8)
-        self.assertEqual(len(bars), 9)                              # 9:30 ... the 10:10 entry bar
+        self.assertEqual(len(bars), 9)                              # 9:15 ... the 09:55 entry bar
         # by hand: the true range of each bar, the first one without the overnight gap
         trs, prev = [], None
         for b in bars:
@@ -127,7 +128,7 @@ class Math(unittest.TestCase):
         self.assertEqual(n, 9)
         self.assertAlmostEqual(atr, sum(trs) / 9, places=9)
         self.assertAlmostEqual(atr, 3.2182, places=4)
-        # later in the day it uses the last 14 bars; the file's in-progress 10:45 bar and tick never count
+        # later in the day it uses the last 14 bars; the file's in-progress 10:30 bar and tick never count
         all_bars = exitp.session_bars(ch, day, "5m")
         self.assertEqual(len(all_bars), 15)
         self.assertEqual(exitp.atr_of(all_bars)[1], 14)
@@ -149,41 +150,41 @@ class Cli(unittest.TestCase):
             json.dump(doc, fh)
 
     def plan(self, *args):
-        return run(exitp, ["plan", "--now", "2026-10-19 10:16"] + list(args))
+        return run(exitp, ["plan", "--now", "2026-10-19 10:01"] + list(args))
 
     def read_plan(self):
         with open(os.path.join("trader", "plan.json")) as fh:
             return json.load(fh)
 
     def test_entry_to_plan_end_to_end(self):
-        code, _, _ = run(entry, ["check", "TSLA", "--offline", TSLA, "--now", "2026-10-19 10:15", "--write"])
+        code, _, _ = run(entry, ["check", "TSLA", "--offline", TSLA, "--now", "2026-10-19 10:00", "--write"])
         self.assertEqual(code, 0)
         code, text, err = self.plan("--stop", "or-mid", "--target", "1R", "--write")
         self.assertEqual(code, 0, err)
         p = self.read_plan()
         for k, v in REEL_PLAN.items():
             self.assertEqual(p[k], v, k)
-        self.assertIn("Stop          $358.32  opening-range midpoint", text)
-        self.assertIn("Target        $370.04  1R (one times the risk)", text)
-        self.assertIn("Risk a share  $5.86 (1.61% of the entry)", text)
+        self.assertIn("Stop          Rs 358.30  opening-range midpoint", text)
+        self.assertIn("Target        Rs 370.05  1R (one times the risk)", text)
+        self.assertIn("Risk a share  Rs 5.88 (1.61% of the entry)", text)
         self.assertIn("Reward:risk   1.0", text)
-        self.assertIn("Flat by       15:55", text)
+        self.assertIn("Flat by       15:15", text)
         self.assertIn("not a guarantee", text)
         self.assertIn("/trader-timemachine", text)
         self.assertNotIn("pro" + "fit", text.lower())   # never on screen
         code, text, _ = self.plan("--write")                       # the defaults: or-mid, 2R
-        self.assertEqual(self.read_plan()["target"], 375.90)
+        self.assertEqual(self.read_plan()["target"], 375.95)
         self.assertEqual(self.read_plan()["target_r"], 2.0)
-        code, text, _ = run(exitp, ["show", "--now", "2026-10-19 10:20"])
+        code, text, _ = run(exitp, ["show", "--now", "2026-10-19 10:05"])
         self.assertEqual(code, 0)
-        self.assertIn("$375.90", text)
+        self.assertIn("Rs 375.95", text)
         self.assertNotIn("not today", text)
-        code, text, _ = run(exitp, ["show", "--now", "2026-10-20 10:20"])
+        code, text, _ = run(exitp, ["show", "--now", "2026-10-21 10:05"])
         self.assertIn("not today", text)
 
     def test_manual_flags_and_json(self):
         code, text, _ = self.plan("--symbol", "tsla", "--entry", "364.18", "--or-high", "362.18", "--or-low", "354.47",
-                                  "--time", "10:15", "--entry-bar", "8", "--date", "2026-10-19", "--target", "1R",
+                                  "--time", "10:00", "--entry-bar", "8", "--date", "2026-10-19", "--target", "1R",
                                   "--json")
         self.assertEqual(code, 0)
         p = json.loads(text)
@@ -196,7 +197,7 @@ class Cli(unittest.TestCase):
         code, text, err = self.plan("--stop", "atr:1.5", "--offline", TSLA, "--json")
         self.assertEqual(code, 0, err)
         p = json.loads(text)
-        self.assertEqual((p["stop"], p["risk_per_share"], p["target"]), (359.35, 4.83, 373.84))
+        self.assertEqual((p["stop"], p["risk_per_share"], p["target"]), (359.35, 4.83, 373.85))
         self.assertEqual((p["stop_rule"], p["atr_bars"]), ("atr", 9))
         self.assertAlmostEqual(p["atr"], 3.2182, places=4)
         code, _, err = self.plan("--stop", "atr:1.5", "--offline", TSLA, "--entry-bar", "1")
@@ -212,7 +213,7 @@ class Cli(unittest.TestCase):
         code, text, _ = self.plan("--entry", "362.19", "--json")    # plan ahead at the level
         self.assertEqual(code, 0)
         p = json.loads(text)
-        self.assertEqual((p["entry"], p["stop"], p["entry_time"]), (362.19, 358.32, None))
+        self.assertEqual((p["entry"], p["stop"], p["entry_time"]), (362.19, 358.30, None))
 
         self.write(os.path.join("trader", "entry.json"), dict(REEL_ENTRY, setup="level", level=362.0))
         code, _, err = self.plan()
@@ -239,27 +240,27 @@ class Cli(unittest.TestCase):
 
     def test_flat_by_config_half_day_and_late_entries(self):
         self.write(os.path.join("trader", "entry.json"), REEL_ENTRY)
-        self.write(os.path.join("trader", "config.json"), {"flat_by": "15:45", "min_reward_risk": 1.5})
+        self.write(os.path.join("trader", "config.json"), {"flat_by": "15:00", "min_reward_risk": 1.5})
         code, text, _ = self.plan("--target", "1R", "--json")
         p = json.loads(text)
-        self.assertEqual(p["flat_by"], "15:45")
+        self.assertEqual(p["flat_by"], "15:00")
         self.assertIn("under your min_reward_risk 1.5", p["warnings"][0])
         os.remove(os.path.join("trader", "config.json"))
 
-        half = dict(REEL_ENTRY, date="2026-11-27")
-        self.write(os.path.join("trader", "entry.json"), half)
-        code, text, _ = run(exitp, ["plan", "--now", "2026-11-27 10:16"])
+        # NSE has no scheduled early close: the day after US Thanksgiving is a normal session
+        self.write(os.path.join("trader", "entry.json"), dict(REEL_ENTRY, date="2026-11-27"))
+        code, text, _ = run(exitp, ["plan", "--now", "2026-11-27 10:01"])
         self.assertEqual(code, 0)
-        self.assertIn("Flat by       12:55 ET", text)
-        self.assertIn("early close", text)
-        code, _, err = run(exitp, ["plan", "--now", "2026-11-27 10:16", "--flat-by", "14:00"])
+        self.assertIn("Flat by       15:15", text)
+        self.assertNotIn("early close", text)
+        code, _, err = run(exitp, ["plan", "--now", "2026-11-27 10:01", "--flat-by", "15:45"])
         self.assertEqual(code, 1)
-        self.assertIn("after the 1:00 PM close", err)
+        self.assertIn("after the 3:30 PM close", err)
 
         self.write(os.path.join("trader", "entry.json"), REEL_ENTRY)
         code, _, err = self.plan("--flat-by", "16:30")
-        self.assertIn("after the 4:00 PM close", err)
-        self.write(os.path.join("trader", "entry.json"), dict(REEL_ENTRY, time="3:58 PM"))
+        self.assertIn("after the 3:30 PM close", err)
+        self.write(os.path.join("trader", "entry.json"), dict(REEL_ENTRY, time="3:28 PM"))
         code, _, err = self.plan()
         self.assertEqual(code, 1)
         self.assertIn("no time left to hold it", err)
@@ -280,7 +281,7 @@ class SkillDoc(unittest.TestCase):
         self.assertGreater(len(text.splitlines()), 60)
         self.assertEqual(text[text.index("## Safety"):], risk[risk.index("## Safety"):])
         low = " ".join(text.lower().split())
-        for must in ("before the entry", "a stop is a plan, not a guarantee", "day trading loses most people money", "/trader-timemachine", "/trader-budget", "longs only", "$358.32", "$370.04", "$5.86", "375.90", "too tight to survive the spread"):
+        for must in ("before the entry", "a stop is a plan, not a guarantee", "day trading loses most people money", "/trader-timemachine", "/trader-budget", "longs only", "rs 358.30", "rs 370.05", "rs 5.88", "375.95", "nse tick", "too tight to survive the spread"):
             self.assertIn(must, low)
         for never in ("\u2014", "tick " + "by tick", "real " + "time", "pro" + "fit"):
             self.assertNotIn(never, low)

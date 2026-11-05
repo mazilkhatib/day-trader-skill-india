@@ -11,17 +11,17 @@ from _load import load, ROOT, FIX
 ticket = load("trader-broker", "ticket")
 check = load("trader-risk", "check")
 
-CFG_PATH = os.path.join(ROOT, "trader-budget", "config.example.json")
+CFG_PATH = os.path.join(FIX, "trader-budget", "config-reel.json")   # the reel: budget 5,000, _inr keys
 ORDERS_PATH = os.path.join(FIX, "trader-risk", "orders-tsla.json")
 PLAN_PATH = os.path.join(FIX, "trader-budget", "plan-tsla.json")
-NOW = "2026-10-19 10:15"
+NOW = "2026-10-19 10:00"
 TODAY = "2026-10-19"
 AAPL = {"symbol": "AAPL", "side": "buy", "notional": "1250", "type": "market", "time_in_force": "day"}
 BATCH = ["AAPL", "AXP", "GOOGL", "KO", "BAC"]
 TSLA_CALL = {"symbol": "TSLA", "side": "buy", "qty": "8", "type": "market", "time_in_force": "day",
              "order_class": "bracket", "take_profit_limit_price": "370.04", "stop_loss_stop_price": "358.32"}
 TSLA_PLAIN = ("BUY 8 TSLA, market, good for today / stop-loss 358.32 / take-profit 370.04 / max loss about "
-              "$46.88 if the stop fills at 358.32 (it can fill worse in a fast market)")
+              "Rs 46.88 if the stop fills at 358.32 (it can fill worse in a fast market)")
 
 
 def tsla(**over):
@@ -43,7 +43,7 @@ class ExplicitYes(unittest.TestCase):
         return ticket.parse_yes(reply, order, batch)[0]
 
     def test_plain_yes_counts(self):
-        for r in ("yes", "Yes.", "YES", "y", "yes place it", "Yes, buy it", "yes AAPL", "yes $1,250 of AAPL",
+        for r in ("yes", "Yes.", "YES", "y", "yes place it", "Yes, buy it", "yes AAPL", "yes Rs 1,250 of AAPL",
                   "yes 1250"):
             self.assertTrue(self.yes(r), r)
 
@@ -81,10 +81,10 @@ class TicketShape(unittest.TestCase):
         self.assertEqual(ticket.fingerprint(tsla()), ticket.fingerprint(TSLA_CALL))
 
     def test_plain_english(self):
-        self.assertEqual(ticket.plain(AAPL), "BUY $1,250 of AAPL, market order, good for today")
+        self.assertEqual(ticket.plain(AAPL), "BUY Rs 1,250 of AAPL, market order, good for today")
         self.assertEqual(ticket.plain({"symbol": "KO", "side": "sell", "qty": "1", "type": "limit",
                                        "limit_price": "95", "time_in_force": "gtc"}),
-                         "SELL 1 share of KO, limit order at $95, good until canceled")
+                         "SELL 1 share of KO, limit order at Rs 95, good until canceled")
         self.assertEqual(ticket.plain(tsla()), TSLA_PLAIN)
         lim = tsla(type="limit", limit_price="364.00")
         self.assertEqual(ticket.plain(lim).split(" / ")[0], "BUY 8 TSLA, limit 364.00, good for today")
@@ -109,7 +109,11 @@ class Flow(unittest.TestCase):
         self.orders = os.path.join(self.d, "orders.json")
         shutil.copy(ORDERS_PATH, self.orders)
         self.cfg = os.path.join(self.d, "config.json")
-        shutil.copy(CFG_PATH, self.cfg)
+        with open(CFG_PATH) as fh:
+            cfg = json.load(fh)
+        cfg["broker"] = "alpaca"          # the original connector path, still supported; "manual" is the default
+        with open(self.cfg, "w") as fh:
+            json.dump(cfg, fh)
         self.risk = os.path.join(self.d, "state", "risk.json")
         self.state = os.path.join(self.d, "state", "broker.json")
         self.pf = os.path.join(self.d, "portfolio.json")
@@ -169,13 +173,13 @@ class Flow(unittest.TestCase):
 
         code, text, _ = run(self.args("result", "--index", "1", "--status", "placed", "--broker-id", "abc123",
                                       "--filled-qty", "8", "--filled-price", "364.20", "--portfolio", self.pf,
-                                      now="2026-10-19 10:16"))
+                                      now="2026-10-19 10:01"))
         self.assertEqual(code, 0)
         st = self.state_doc()
         self.assertEqual([r["status"] for r in st["orders"]], ["approved", "placed", "filled"])
         appr, plc = st["orders"][0], st["orders"][1]
         self.assertEqual((appr["reply"], appr["kind"], appr["max_loss"], appr["date"]), ("yes", "entry", 46.88, TODAY))
-        self.assertEqual(appr["at"], "2026-10-19T10:15:00-04:00")
+        self.assertEqual(appr["at"], "2026-10-19T10:00:00+05:30")
         self.assertEqual((plc["broker_order_id"], plc["max_loss"], plc["kind"]), ("abc123", 46.88, "entry"))
         with open(self.pf) as fh:
             pf = json.load(fh)
@@ -186,10 +190,10 @@ class Flow(unittest.TestCase):
         self.assertIn("DONE: placed", text)
         code, text, _ = run(["log", "--state", self.state, "--now", NOW])
         self.assertIn("1 placed today", text)
-        self.assertIn("max loss $46.88", text)
+        self.assertIn("max loss Rs 46.88", text)
 
-        # trader-risk now counts it: a second TSLA buy today is a duplicate, and $46.88 is used
-        res = check.check([tsla()], {"budget": 5000}, state=st, now=check.parse_now("2026-10-19 10:30"))
+        # trader-risk now counts it: a second TSLA buy today is a duplicate, and Rs 46.88 is used
+        res = check.check([tsla()], {"budget": 5000}, state=st, now=check.parse_now("2026-10-19 10:15"))
         self.assertIn("already placed today", " ".join(res["results"][0]["reasons"]))
         self.assertEqual((res["today"]["entries_placed"], res["today"]["loss_at_risk"]), (1, 46.88))
 
@@ -198,18 +202,18 @@ class Flow(unittest.TestCase):
         run(self.args("approve", "--index", "1", "--reply", "yes"))
         run(self.args("result", "--index", "1", "--status", "placed", "--broker-id", "abc",
                       "--filled-qty", "8", "--filled-price", "364.20", "--portfolio", self.pf))
-        late = "2026-10-19 15:55"
+        late = "2026-10-19 15:25"
         code, text, _ = run(["flatten", "--symbol", "TSLA", "--orders", self.orders, "--portfolio", self.pf,
                              "--plan", PLAN_PATH, "--config", self.cfg, "--now", late])
         self.assertEqual(code, 0)
-        self.assertIn("SELL 8 shares of TSLA, market order, good for today (flat by 15:55 New York)", text)
+        self.assertIn("SELL 8 shares of TSLA, market order, good for today (flat by 15:15 IST)", text)
         self.assertIn("replaced 1 earlier proposal", text)
-        self.assertIn("cancel_order_by_id", text)
+        self.assertIn("cancel them in the broker app first", text)
         with open(self.orders) as fh:
             doc = json.load(fh)
         self.assertEqual(ticket.tool_input(doc["orders"][0]),
                          {"symbol": "TSLA", "side": "sell", "qty": "8", "type": "market", "time_in_force": "day"})
-        self.assertEqual(self.run_risk(now=late), 0)       # after the 15:30 entry cutoff: an exit still passes
+        self.assertEqual(self.run_risk(now=late), 0)       # after the 15:15 entry cutoff: an exit still passes
         with open(self.risk) as fh:
             self.assertEqual(json.load(fh)["results"][0]["kind"], "exit")
         code, text, _ = run(self.args("show", now=late))
@@ -217,7 +221,7 @@ class Flow(unittest.TestCase):
         self.assertIn("READY", text)
         self.assertEqual(run(self.args("approve", "--index", "1", "--reply", "yes sell 8 TSLA", now=late))[0], 0)
         code, _, _ = run(self.args("result", "--index", "1", "--status", "placed", "--filled-qty", "8",
-                                   "--filled-price", "366.10", "--portfolio", self.pf, now="2026-10-19 15:56"))
+                                   "--filled-price", "366.10", "--portfolio", self.pf, now="2026-10-19 15:26"))
         self.assertEqual(code, 0)
         with open(self.pf) as fh:
             pf = json.load(fh)
@@ -227,6 +231,26 @@ class Flow(unittest.TestCase):
                             "--now", late])
         self.assertEqual(code, 1)
         self.assertIn("nothing to flatten", err)
+
+    def test_manual_mode_prints_the_mis_legs(self):
+        with open(self.cfg) as fh:
+            cfg = json.load(fh)
+        cfg.pop("broker")                 # the India default: manual
+        with open(self.cfg, "w") as fh:
+            json.dump(cfg, fh)
+        self.assertEqual(self.run_risk(), 0)
+        code, text, _ = run(self.args("show", "--index", "1"))
+        self.assertEqual(code, 0)
+        self.assertIn("ORDER 1 of 1, PAPER account, your broker (manual)", text)
+        self.assertIn("product MIS / Intraday", text)
+        self.assertIn("1. BUY 8 TSLA, MARKET", text)
+        self.assertIn("2. once it fills: SELL 8 TSLA, SL-M trigger 358.32", text)
+        self.assertIn("3. and: SELL 8 TSLA, LIMIT 370.04", text)
+        self.assertNotIn("place_stock_order", text)
+        code, text, _ = run(self.args("approve", "--index", "1", "--reply", "yes"))
+        self.assertEqual(code, 0)
+        self.assertIn("Place it yourself in your broker app", text)
+        self.assertIn("ticket.py result --index 1", text)
 
     def test_flatten_with_the_broker_qty(self):
         code, text, _ = run(["flatten", "--symbol", "tsla", "--qty", "8", "--orders", self.orders,
@@ -247,15 +271,15 @@ class Flow(unittest.TestCase):
         self.assertIn("was not in the last risk check", text)
 
     def test_yesterdays_check_does_not_count(self):
-        self.run_risk(now="2026-10-16 10:15")
+        self.run_risk(now="2026-10-16 10:00")
         code, text, _ = run(self.args("show", "--index", "1"))
         self.assertIn("not today", text)
 
     def test_blocked_orders_are_never_ready(self):
-        self.assertEqual(self.run_risk(now="2026-10-19 09:40"), 1)
-        code, text, _ = run(self.args("show", "--index", "1", now="2026-10-19 09:40"))
-        self.assertIn("BLOCKED by trader-risk: window: no new entries before 09:45", text)
-        code, _, _ = run(self.args("approve", "--index", "1", "--reply", "yes", now="2026-10-19 09:40"))
+        self.assertEqual(self.run_risk(now="2026-10-19 09:25"), 1)
+        code, text, _ = run(self.args("show", "--index", "1", now="2026-10-19 09:25"))
+        self.assertIn("BLOCKED by trader-risk: window: no new entries before 09:30", text)
+        code, _, _ = run(self.args("approve", "--index", "1", "--reply", "yes", now="2026-10-19 09:25"))
         self.assertEqual(code, 1)
 
     def test_result_needs_an_approval_and_decline_is_logged(self):

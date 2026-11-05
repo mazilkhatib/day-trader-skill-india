@@ -45,7 +45,7 @@ class Feeds(unittest.TestCase):
         self.assertEqual(earn["title"], "Apple Inc. filed a 8-K: earnings results")
         self.assertEqual(earn["id"], "sec:0000320193-26-000018")
         self.assertIn("000032019326000018", earn["link"])
-        # 16:30:28 New York time is 20:30:28 UTC
+        # 16:30:28 IST time is 20:30:28 UTC
         self.assertEqual(earn["time"].isoformat(), "2026-07-30T20:30:28+00:00")
         self.assertEqual(items[0]["title"], "Apple Inc. filed a 8-K/A: director or officer change")
 
@@ -55,7 +55,8 @@ class Feeds(unittest.TestCase):
         self.assertIsNone(news.parse_time("soon"))
 
     def test_yahoo_symbols(self):
-        self.assertEqual(news.yahoo_symbol("BRK.B"), "BRK-B")
+        self.assertEqual(news.yahoo_symbol("M&M"), "M%26M.NS")
+        self.assertEqual(news.yahoo_symbol("reliance"), "RELIANCE.NS")
 
 
 class Tagging(unittest.TestCase):
@@ -106,9 +107,9 @@ class Check(unittest.TestCase):
         self.assertIn("Nothing new.", out)
 
     def test_filings_show_in_a_wider_window(self):
-        code, out, err = run(["--tickers", "AAPL", "--hours", "2400"] + self.base)
+        code, out, err = run(["--tickers", "AAPL", "--hours", "2400", "--sec"] + self.base)   # SEC is opt-in
         self.assertEqual(code, 0, err)
-        self.assertIn("! 2026-07-30 16:30 ET  AAPL", out)  # 20:30 UTC, New York time
+        self.assertIn("! 2026-07-31 02:00 IST  AAPL", out)  # 20:30 UTC is 02:00 IST the next day
         self.assertIn("earnings results", out)
         self.assertIn("Not financial advice", out)
         self.assertNotIn(chr(0x2014), out)
@@ -147,29 +148,29 @@ class Check(unittest.TestCase):
                 os.environ["SEC_USER_AGENT"] = old
 
     def test_the_reel_tsla_morning(self):
-        # The reel's real feed: Yahoo Finance headlines for TSLA, Monday Oct 19 2026, checked at 10:15 AM ET
+        # A real Yahoo Finance feed for TSLA, Monday Oct 19 2026, checked at 10:00 AM New York (19:30 IST)
         code, out, err = run(["--tickers", "TSLA", "--hours", "6", "--no-sec", "--no-moves",
-                              "--now", "2026-10-19T10:15:00-04:00"] + self.base[:4])
+                              "--now", "2026-10-19T10:00:00-04:00"] + self.base[:4])
         self.assertEqual(code, 0, err)
-        self.assertIn("2026-10-19 08:04 ET  TSLA", out)
-        self.assertNotIn("10:32 ET", out)  # published after the pinned 10:15 clock
+        self.assertIn("2026-10-19 17:34 IST  TSLA", out)
+        self.assertNotIn("19:47 IST", out)  # published after the pinned clock
         self.assertIn("Tesla-SpaceX Merger Mania Strikes Wall Street Ahead of Earnings", out)
         merger = [l for l in out.splitlines() if "Merger Mania" in l]
         tags = out.splitlines()[out.splitlines().index(merger[0]) + 1]
         self.assertIn("earnings", tags)
         self.assertIn("deal", tags)
-        self.assertIn("Checked 2026-10-19 10:15 ET", out)
-        self.assertEqual(len([l for l in out.splitlines() if l.startswith("  2026-10-19")]), 16)  # 18 in the feed, 2 after 10:15
-        # the price line, from the chart fetched at 10:52
+        self.assertIn("Checked 2026-10-19 19:30 IST", out)
+        self.assertEqual(len([l for l in out.splitlines() if l.startswith("  2026-10-19")]), 16)  # 18 in the feed, 2 after 10:00
+        # the price line, from the chart fetched at 10:37
         code, out, err = run(["--tickers", "TSLA", "--hours", "6", "--no-sec", "--dry-run",
-                              "--now", "2026-10-19T10:52:00-04:00"] + self.base[:4])
-        self.assertRegex(out, r"TSLA\s+366\.4[78] \+3\.31% vs yesterday's close 354\.72 at 10:52 ET  MOVING")
+                              "--now", "2026-10-19T10:37:00-04:00"] + self.base[:4])
+        self.assertRegex(out, r"TSLA\s+366\.4[78] \+3\.31% vs yesterday's close 354\.72 at 10:37 IST  MOVING")
 
     def test_moves(self):
         m = news.parse_chart(raw("chart-TSLA.json"), "TSLA")
         self.assertEqual(m["prev_close"], 354.72)
         self.assertEqual(m["pct"], 3.31)
-        self.assertEqual(news.to_eastern(m["time"]).strftime("%H:%M"), "10:52")
+        self.assertEqual(news.to_ist(m["time"]).strftime("%H:%M"), "10:37")
         quiet = dict(m, pct=1.2)
         self.assertNotIn("MOVING", news.render_moves([quiet])[0])
         self.assertIn("MOVING", news.render_moves([quiet], move_pct=1.0)[0])
@@ -180,13 +181,11 @@ class Check(unittest.TestCase):
         self.assertNotIn("vs yesterday's close", out)
         self.assertNotIn("note:", out)
 
-    def test_new_york_time_follows_daylight_saving(self):
-        utc = datetime.datetime(2026, 1, 15, 15, 0, tzinfo=datetime.timezone.utc)
-        self.assertEqual(news.to_eastern(utc).hour, 10)  # EST, UTC-5
-        utc = datetime.datetime(2026, 10, 19, 14, 15, tzinfo=datetime.timezone.utc)
-        self.assertEqual(news.to_eastern(utc).hour, 10)  # EDT, UTC-4
-        utc = datetime.datetime(2026, 11, 1, 6, 30)       # 1:30 EST, just after the switch back
-        self.assertEqual(news.to_eastern(utc).hour, 1)
+    def test_ist_has_no_daylight_saving(self):
+        for utc in (datetime.datetime(2026, 1, 15, 15, 0, tzinfo=datetime.timezone.utc),
+                    datetime.datetime(2026, 10, 19, 15, 0, tzinfo=datetime.timezone.utc),
+                    datetime.datetime(2026, 11, 1, 15, 0)):
+            self.assertEqual(news.to_ist(utc).strftime("%H:%M"), "20:30")
 
     def test_day_trading_tags(self):
         items = [{"id": "x", "source": "Yahoo Finance", "kind": "headline", "ticker": "TSLA",

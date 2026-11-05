@@ -15,6 +15,12 @@ description: >-
 argument-hint: "[TICKER] [--setup orb|level] [--interval 5m|1m]"
 ---
 
+> **India version (NSE).** Times are IST (UTC+5:30, no daylight saving); the session is 9:15 to
+> 15:30, entries 09:30 to 14:45, flat by 15:15 (before brokers' MIS auto square-off). Tickers are
+> plain NSE symbols (RELIANCE, M&M, BAJAJ-AUTO; Yahoo gets RELIANCE.NS). Money is in rupees (Rs);
+> config limits can be written as `_inr` keys (`max_loss_per_trade_inr`). Prices round to the NSE
+> tick. Orders are placed by you in your broker app (`"broker": "manual"`, the default).
+
 # trader-entry
 
 The Entry Timer turns a setup into one moment: the bar that confirms it. It
@@ -37,7 +43,7 @@ python3 "${CLAUDE_SKILL_DIR}/entry.py" watchlist                   # every hit i
 
 Other flags: `--or-minutes N` (default 15), `--json`, `--offline FILE` (a
 saved Yahoo chart JSON, `.json` or `.json.gz`, or a folder of
-`<TICKER>.json`), `--now "2026-10-19 10:15"` (New York time) to replay a day.
+`<TICKER>.json`), `--now "2026-10-19 10:00"` (IST) to replay a day.
 `watch` with `--now` or `--offline` runs on a simulated clock and replays the
 day bar by bar without waiting.
 
@@ -46,32 +52,31 @@ day bar by bar without waiting.
 | file | what |
 | --- | --- |
 | `trader/watchlist.json` | the scanner's hits (`hits[].symbol`), for `watchlist` |
-| `trader/config.json` | `no_entries_before` (09:45) and `no_entries_after` (15:30), New York time. Optional |
+| `trader/config.json` | `no_entries_before` (09:30) and `no_entries_after` (14:45), IST. Optional |
 | Yahoo chart API | today's bars, `range=1d&interval=5m` (or `1m`): free, unofficial, can lag |
 | `trader/entry.json` | with `check --write`, or when `watch` triggers: symbol, setup, status, time, bar, price, level, opening range |
 
 ## The rule
 
 - **Opening range (orb).** The high and low of the first 15 minutes: the
-  9:30, 9:35 and 9:40 five-minute bars, or fifteen 1-minute bars. The level
+  9:15, 9:20 and 9:25 five-minute bars, or fifteen 1-minute bars. The level
   to beat is the range high.
 - **Level.** A price you give, like a 20-day high from `/trader-scanner`.
 - **The trigger** is the first completed bar after the range that CLOSES
   above the level. A wick above is not a trigger. A close exactly at the
   level is not above it.
-- **The time** is that bar's close time (the 10:10 bar closes at 10:15 AM).
-  The price is its close, to the cent.
+- **The time** is that bar's close time (the 9:55 bar closes at 10:00 AM).
+  The price is its close, to the NSE tick.
 - **Only closed bars count.** A bar is closed when the clock passes its start
   plus 5 (or 1) minutes and Yahoo has caught up to that moment (it waits a
   minute at most). Yahoo's live tick, like 10:49:45, is never a bar.
 - **Volume, if you want it.** `--min-volume-x 1.5` also needs the trigger
-  bar's volume at 1.5 times the range bars' average. The 9:30 bar holds the
+  bar's volume at 1.5 times the range bars' average. The 9:15 bar holds the
   opening auction, so 1.0 is already strict.
-- **Time limits.** No entries before 9:45 or after 15:30 (config). On a 1:00
-  p.m. early close the cutoff moves up with the close, to 12:30.
+- **Time limits.** No entries before 9:30 or after 14:45 (config), IST.
 - **What it says.** Waiting (and how far the last close is from the level),
-  triggered, expired, or no data. Before 9:30: not open yet. Before 9:45: the
-  range is still forming. Weekends and NYSE holidays: the market is closed.
+  triggered, expired, or no data. Before 9:15: not open yet. Before 9:30: the
+  range is still forming. Weekends and NSE holidays: the market is closed.
 
 ## Steps
 
@@ -94,24 +99,24 @@ day bar by bar without waiting.
 ## Example: the reel
 
 TSLA, Monday 2026-10-19, 5-minute bars. The opening range is 354.47 to
-362.18. At 10:12 the 10:10 bar is still open, so it waits:
+362.18. At 9:57 the 9:55 bar is still open, so it waits:
 
 ```
-WAITING  last close $361.68 (10:05 bar), $0.50 under the range high $362.18 (-0.14%).
-The 10:10 bar is still forming ($364.18 so far, closes 10:15 AM); it does not count until it closes.
+WAITING  last close Rs 361.68 (10:05 bar), Rs 0.50 under the range high Rs 362.18 (-0.14%).
+The 9:55 bar is still forming (Rs 364.18 so far, closes 10:00 AM); it does not count until it closes.
 ```
 
-At 10:15 the bar has closed:
+At 10:00 the bar has closed:
 
 ```
-TSLA  Mon 2026-10-19 10:15 ET  opening-range breakout (15-minute range) on 5-minute bars (Yahoo, free, can lag)
-Opening range 9:30-9:45: high $362.18, low $354.47 (3 of 3 bars).
-TRIGGERED 10:15 AM at $364.18: the 10:10 bar (bar 8) closed above the range high $362.18 (+0.55%).
+TSLA  Mon 2026-10-19 10:00 IST  opening-range breakout (15-minute range) on 5-minute bars (Yahoo, free, can lag)
+Opening range 9:15-9:30: high Rs 362.18, low Rs 354.47 (3 of 3 bars).
+TRIGGERED 10:00 AM at Rs 364.18: the 9:55 bar (bar 8) closed above the range high Rs 362.18 (+0.55%).
 This is the moment to get in, if you take the trade. Nothing was placed.
 Next: set the stop and target BEFORE you buy: /trader-exit (exit.py plan --from trader/entry.json).
 ```
 
-With `--min-volume-x 1` the 10:10 bar is too thin (0.60x the range's volume)
+With `--min-volume-x 1` the 9:55 bar is too thin (0.60x the range's volume)
 and the trigger moves to 10:35 AM at 365.75 (the 10:30 bar, 7.98x).
 
 ## Rules

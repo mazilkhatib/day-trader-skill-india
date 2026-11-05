@@ -18,6 +18,12 @@ description: >-
 argument-hint: "[path to orders.json]"
 ---
 
+> **India version (NSE).** Times are IST (UTC+5:30, no daylight saving); the session is 9:15 to
+> 15:30, entries 09:30 to 14:45, flat by 15:15 (before brokers' MIS auto square-off). Tickers are
+> plain NSE symbols (RELIANCE, M&M, BAJAJ-AUTO; Yahoo gets RELIANCE.NS). Money is in rupees (Rs);
+> config limits can be written as `_inr` keys (`max_loss_per_trade_inr`). Prices round to the NSE
+> tick. Orders are placed by you in your broker app (`"broker": "manual"`, the default).
+
 # trader-risk
 
 The Risk Manager is the gate between a proposal and the broker. Every order
@@ -32,7 +38,7 @@ keep each loss and each day's losses small. They do not make a trade win.
 python3 "${CLAUDE_SKILL_DIR}/check.py"                           # trader/ files; writes trader/state/risk.json
 python3 "${CLAUDE_SKILL_DIR}/check.py" --json
 python3 "${CLAUDE_SKILL_DIR}/check.py" --no-write                # look without recording
-python3 "${CLAUDE_SKILL_DIR}/check.py" --now "2026-10-19 10:15"  # pin the clock (New York time)
+python3 "${CLAUDE_SKILL_DIR}/check.py" --now "2026-10-19 10:15"  # pin the clock (IST)
 ```
 
 ## What it reads and writes
@@ -86,14 +92,13 @@ How the numbers work:
   understate the risk at 10:55 after the price ran up. An older price is not
   used, and it says so.
 - **Daily loss** counts the full max loss of every entry placed today, win or
-  lose, as trader-broker logged it. Three full-size trades use up a $150 day.
-- **The window** is New York time, worked out in the tool (daylight saving
-  included), never from the computer's clock zone. Weekends and NYSE holidays
-  are closed. On a 1:00 p.m. early close the window ends 3 hours earlier too.
+  lose, as trader-broker logged it. Three full-size trades use up a Rs 150 day.
+- **The window** is IST, worked out in the tool, never from the
+  computer's clock zone. Weekends and NSE holidays are closed.
   Set both `no_entries_*` to null to switch the window off.
 - **pdt_guard** (off by default) counts a day trade as a symbol bought and
   sold on the same day in the log, plus any entry placed today (it is meant
-  to be flat by the close). FINRA removed the $25,000 pattern-day-trader
+  to be flat by the close). FINRA removed the Rs 25,000 pattern-day-trader
   minimum (Regulatory Notice 26-10, effective June 4, 2026; firms may phase
   in until October 20, 2027), so some brokers still apply the old rule: turn
   `pdt_guard` on if yours does.
@@ -120,15 +125,15 @@ not at the broker, a price too old to use, an early close today.
 ## Example: the reel
 
 The TSLA bracket from trader-budget at 10:15 AM on Monday 2026-10-19, on a
-fresh $5,000 paper account with the example config:
+fresh Rs 5,000 paper account with the example config:
 
 ```
 PASS  #1 buy TSLA 8 shares, entry
           entry 364.18 (the plan's entry), stop 358.32, target 370.04: risk 5.86 a share
-          max loss $46.88 (limit $50), reward:risk 1.00 (min 1)
-          today before this: 0 of 3 trades, $0 of $150 daily loss
+          max loss Rs 46.88 (limit Rs 50), reward:risk 1.00 (min 1)
+          today before this: 0 of 3 trades, Rs 0 of Rs 150 daily loss
 
-1 passed, 0 blocked at 2026-10-19 10:15 New York. Cash after the passed orders: $2,086.56 (paper account).
+1 passed, 0 blocked at 2026-10-19 10:15 IST. Cash after the passed orders: Rs 2,086.56 (paper account).
 ```
 
 One more share and it is blocked:
@@ -136,15 +141,15 @@ One more share and it is blocked:
 ```
 BLOCK #1 buy TSLA 9 shares, entry
           entry 364.18 (the plan's entry), stop 358.32, target 370.04: risk 5.86 a share
-          max loss $52.74 (limit $50), reward:risk 1.00 (min 1)
-          today before this: 0 of 3 trades, $0 of $150 daily loss
-        - loss: 9 shares x 5.86 risk a share = $52.74 at the stop, over your $50 max loss per trade
+          max loss Rs 52.74 (limit Rs 50), reward:risk 1.00 (min 1)
+          today before this: 0 of 3 trades, Rs 0 of Rs 150 daily loss
+        - loss: 9 shares x 5.86 risk a share = Rs 52.74 at the stop, over your Rs 50 max loss per trade
 ```
 
 The same 8 shares checked at 10:55 with the real 10:52 quote (366.48) in
-`trader/prices.json` are blocked twice: 8 x 8.16 = $65.28 at the stop, and
+`trader/prices.json` are blocked twice: 8 x 8.16 = Rs 65.28 at the stop, and
 reward:risk 0.44. At 9:40 they are blocked by the window (no new entries
-before 9:45). The 3:55 PM sell that closes the position passes, even though
+before 9:45). The 3:15 PM sell that closes the position passes, even though
 it is after the 3:30 entry cutoff: it is an exit.
 
 ## Rules

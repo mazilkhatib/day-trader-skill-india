@@ -2,8 +2,8 @@
 name: trader-scanner
 description: >-
   Chart Scanner. Scans thousands of charts for setups: opening-range
-  breakouts, flags, oversold bounces. Builds the list of US-listed common
-  stocks, ordinary shares and ADRs from Nasdaq Trader's symbol directories,
+  breakouts, flags, oversold bounces. Builds the list of NSE-listed common
+  stocks, ordinary shares and ADRs from NSE's symbol directories,
   runs a pre-market scan of daily closes (20-day closing-high breakout, bull
   flag, reclaimed the 20-day average, oversold, oversold bounce) and an
   intraday opening-range breakout scan on 5-minute bars, then writes
@@ -14,6 +14,12 @@ description: >-
   look at today", or at the start of a trading day before /trader-news.
 argument-hint: "[universe | daily | orb] [--at HH:MM]"
 ---
+
+> **India version (NSE).** Times are IST (UTC+5:30, no daylight saving); the session is 9:15 to
+> 15:30, entries 09:30 to 14:45, flat by 15:15 (before brokers' MIS auto square-off). Tickers are
+> plain NSE symbols (RELIANCE, M&M, BAJAJ-AUTO; Yahoo gets RELIANCE.NS). Money is in rupees (Rs);
+> config limits can be written as `_inr` keys (`max_loss_per_trade_inr`). Prices round to the NSE
+> tick. Orders are placed by you in your broker app (`"broker": "manual"`, the default).
 
 # trader-scanner
 
@@ -37,7 +43,7 @@ python3 "${CLAUDE_SKILL_DIR}/scan.py" orb --watchlist trader/watchlist.json --js
 
 Flags: `--min-price 5` and `--min-volume` (daily 1,000,000, orb 0),
 `--or-minutes 15`, `--max-confirm 200` (orb stage 2),
-`--now "2026-10-19 10:15"` (New York time) to pin the clock, `--offline PATH`
+`--now "2026-10-19 10:15"` (IST) to pin the clock, `--offline PATH`
 to read saved Yahoo files, `--no-write`, `--show N`, `--json`. Exit code 0
 when the scan found something, 1 when it found nothing or could not run (the
 reason is one plain line).
@@ -81,7 +87,7 @@ symbols take 298 requests. On Oct 20 2026 that took 145 seconds with the
 polite pause (0.3 s). Liquidity comes from the spark meta: last price at
 least `--min-price` and last session's volume at least `--min-volume`. Run it
 before the open or after the close: during the session the volume is the
-day's so far, and today's daily bar is left out until 4:00 PM.
+day's so far, and today's daily bar is left out until 3:30 PM.
 
 The setups are computed from daily closes only (spark has no highs or lows),
 so they are close cousins of the reel's `refs/scan.py`, which used highs and
@@ -123,13 +129,13 @@ spark requests, then 200 v8 charts): 2,448 usable charts, 1,782 candidates,
 the 200 most traded checked, 119 of those broke out. For a fast answer, scan
 the daily watchlist or a list of names you trade (`--watchlist`, `--symbols`).
 
-A chart is usable only when every 5-minute bar from 9:30 to the cutoff is
+A chart is usable only when every 5-minute bar from 9:15 to the cutoff is
 there; a missing bar means a halt or a thin stock. Null closes are dropped,
 a bar off the 5-minute grid (the live tick, like 10:58:07) is dropped, and a
 bar counts only once it is complete (start + 5 minutes). Before 9:50 AM, on a
 weekend or holiday, after the close, or after `no_entries_after` (an expired
-setup) it prints one plain line and writes nothing. The 1:00 PM early closes
-are in the calendar.
+setup) it prints one plain line and writes nothing. NSE holidays are in the
+calendar.
 
 ## Data and limits
 
@@ -138,7 +144,7 @@ are in the calendar.
   or 5xx, one retry after a 5-second wait on a 429.
 - Partial results are said as partial: "Fetched 4,980 of 5,259 charts (279
   failed or had no data)". Never round a partial scan up to "the whole market".
-- NYSE holidays and early closes for 2026 and 2027 (nyse.com, read 2026-10-13).
+- NSE trading holidays for 2026 (nseindia.com, read 2026-11-05).
 
 ## Steps
 
@@ -160,13 +166,13 @@ Monday Oct 19 2026, scan at 10:15 AM over the reel's 234-ticker wall
 python3 scan.py orb --offline wall5m-2026-10-19.json.gz --now "2026-10-19 10:15" --min-price 0
 Fetched 233 of 234 charts (1 failed or had no data); 231 usable; 95 candidates, 95 confirmed with real highs and lows.
 42 of 231 charts closed above their opening-range high by 10:15 AM:
-   9:50 AM  AMC         $2.97  range 2.90 to 2.96  +0.50% over
+   9:50 AM  AMC         Rs 2.97  range 2.90 to 2.96  +0.50% over
   ...
-  10:15 AM  TSLA      $364.18  range 354.47 to 362.18  +0.55% over
+  10:15 AM  TSLA      Rs 364.18  range 354.47 to 362.18  +0.55% over
 ```
 
-The reel's wall had no price floor (AMC at $2.97 is one of the 42), hence
-`--min-price 0`; with the default $5 floor it is 41. TSLA's range is the 9:30
+The reel's wall had no price floor (AMC at Rs 2.97 is one of the 42), hence
+`--min-price 0`; with the default Rs 5 floor it is 41. TSLA's range is the 9:30
 to 9:40 bars, high 362.18, low 354.47; the 10:10 bar closed at 364.18, 0.55 %
 over the high, at 10:15 AM. The user picks TSLA and Claude hands it to
 `/trader-news TSLA`, then `/trader-entry TSLA`. In the reel the universe was
