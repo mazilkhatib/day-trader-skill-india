@@ -30,14 +30,14 @@ an order on its own. Paper trading is the default.
 ## Install
 
 ```bash
-git clone https://github.com/akshaym579/day-trader-skill-india.git
+git clone https://github.com/mazilkhatib/day-trader-skill-india.git
 cp -r day-trader-skill-india/trader-* ~/.claude/skills/
 ```
 
 Or as a Claude Code plugin from your fork:
 
 ```
-/plugin marketplace add akshaym579/day-trader-skill-india
+/plugin marketplace add mazilkhatib/day-trader-skill-india
 /plugin install day-trader-skill-india@day-trader-skill-india
 ```
 

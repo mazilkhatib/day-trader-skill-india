@@ -12,7 +12,7 @@
       "description": "Nine Claude skills for NSE intraday trading: a chart scanner (Nifty 500 or all EQ stocks), a news monitor, an entry timer, an exit planner on the NSE tick, a time machine that replays 10,000 sessions, a risk manager, a budget manager in rupees, an order ticket desk (manual broker mode, never without your yes) and price alerts on the NSE clock.",
       "source": "./",
       "category": "productivity",
-      "homepage": "https://github.com/akshaym579/day-trader-skill-india"
+      "homepage": "https://github.com/mazilkhatib/day-trader-skill-india"
     }
   ]
 }
