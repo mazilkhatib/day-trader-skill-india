@@ -140,8 +140,13 @@ def run(universe, a, cfg):
     days = [d for d in days if sum(1 for s in universe.values() if d in s) >= max(1, len(universe) // 2)]
     equity = float(a.capital)
     trades, daily = [], []
+    stop_rule = "or_low" if a.stop in ("or-low", "or_low", "low") else "or_mid"
+    last_close = {}                        # previous session's close, for the gap filter
     for day in days:
         book = {s: universe[s][day] for s in universe if day in universe[s]}
+        gap = {s: (100 * (book[s][0]["o"] / last_close[s] - 1) if s in last_close else None) for s in book}
+        for s in book:
+            last_close[s] = book[s][-1]["c"]
         orng = {}
         for s, bars in book.items():
             oh = max(b["h"] for b in bars[:n_range])
@@ -188,6 +193,11 @@ def run(universe, a, cfg):
                     continue
                 if bars[slot]["c"] > orng[s][0]:
                     triggered.add(s)               # the first close above the range: later ones are stale
+                    g = gap[s]
+                    if a.max_gap is not None and (g is None or g > a.max_gap):
+                        continue                   # e.g. --max-gap -1: only stocks that opened 1 %+ lower
+                    if a.min_gap is not None and (g is None or g < a.min_gap):
+                        continue
                     hits.append(s)
             if pos or not hits or slot < first_slot or slot > last_entry_slot:
                 continue
@@ -198,7 +208,7 @@ def run(universe, a, cfg):
                 fill = bar["c"] * (1 + a.slip_entry / 100)
                 oh, ol = orng[s]
                 try:
-                    p = exitp.compute(fill, "or_mid", None, "r", target_r, oh, ol)
+                    p = exitp.compute(fill, stop_rule, None, "r", target_r, oh, ol)
                 except exitp.PlanError:
                     continue
                 entry, stop, target = float(p["entry"]), float(p["stop"]), float(p["target"])
@@ -270,8 +280,9 @@ def rs(x):
 def report(s, a, cfg, n_syms):
     L = ["ORB backtest on NSE: %d stocks, %d sessions (%s to %s)" % (n_syms, s["sessions"], s["from"], s["to"]),
          "Rules: 15-min opening range, entry on the first 5-min close above it (09:30-14:45 IST),",
-         "       stop at the range midpoint, target %s, flat by %s, max %d trades and %s loss a day," % (
-             a.target, cfg["flat_by"], cfg["max_trades_per_day"], rs(cfg["max_daily_loss_usd"])),
+         "       stop at the range %s, target %s, flat by %s, max %d trades and %s loss a day," % (
+             "low" if a.stop == "or-low" else "midpoint", a.target, cfg["flat_by"], cfg["max_trades_per_day"],
+             rs(cfg["max_daily_loss_usd"])),
          "       %s max loss a trade, %s%% position cap, %s." % (
              rs(cfg["max_loss_per_trade_usd"]), cfg["max_position_pct"],
              "cash only" if a.margin == 1 else "%gx MIS margin" % a.margin),
@@ -297,6 +308,11 @@ def main(argv=None):
     ap.add_argument("--capital", type=float, default=15000)
     ap.add_argument("--target", default="2R", help="target in R (default 2R, trader-exit's default)")
     ap.add_argument("--or-minutes", type=int, default=15)
+    ap.add_argument("--stop", default="or-mid", choices=["or-mid", "or-low"],
+                    help="stop at the opening range's midpoint (default) or its low")
+    ap.add_argument("--max-gap", type=float, help="only stocks whose open gapped at most this %% from the "
+                    "previous close (e.g. -1: opened 1 %% or more lower)")
+    ap.add_argument("--min-gap", type=float, help="only stocks whose open gapped at least this %%")
     ap.add_argument("--margin", type=float, default=1.0, help="buying power as a multiple of equity (MIS: 5)")
     ap.add_argument("--max-loss-pct", type=float, default=1.0, help="max loss a trade, %% of the capital (1)")
     ap.add_argument("--daily-loss-pct", type=float, default=3.0, help="max loss a day, %% of the capital (3)")

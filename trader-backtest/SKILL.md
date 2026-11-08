@@ -65,6 +65,8 @@ compounds: each trade is sized from the equity as it stands.
 | --- | --- | --- |
 | `--capital` | 15000 | starting rupees |
 | `--target` | 2R | trader-exit's default |
+| `--stop` | or-mid | `or-low` puts the stop at the opening range's low (wider: costs weigh less in R) |
+| `--max-gap` / `--min-gap` | off | trade only stocks whose open gapped within these % from the previous close (`--max-gap -1`: opened 1 %+ lower) |
 | `--max-loss-pct` | 1 | max loss a trade, % of the capital (Rs 150 on 15,000) |
 | `--daily-loss-pct` | 3 | max loss a day (Rs 450 on 15,000) |
 | `--max-trades` | 3 | entries a day |
