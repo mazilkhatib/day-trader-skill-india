@@ -127,6 +127,35 @@ def hhmm_to_slot(text):
     return (h * 60 + m - (9 * 60 + 15)) // 5
 
 
+# ---------------------------------------------------------------- the time machine filter
+
+def load_tm_cache(a):
+    """tm_signals.py's cache -> {(SYM, date): row}, checked against this run's plan."""
+    if not a.tm_cache:
+        return None
+    with open(a.tm_cache, encoding="utf-8") as fh:
+        doc = json.load(fh)
+    for k, mine in (("stop", a.stop), ("target", a.target), ("slip_entry", a.slip_entry)):
+        if str(doc.get(k)) != str(mine):
+            raise BTError("the time-machine cache was built with %s=%s, this run has %s=%s: rebuild it or match"
+                          % (k, doc.get(k), k, mine))
+    return {(r["sym"], r["date"]): r for rows in doc["signals"].values() for r in rows}
+
+
+def tm_ok(row, slot, a):
+    """True when the time machine's verdict on this signal passes every --tm-* threshold.
+    No verdict (fewer than 20 past sessions) = no trade, as the live tool refuses then."""
+    if row is None or row["slot"] != slot:
+        return False
+    if a.tm_min_lean is not None and (row["lean"] is None or row["lean"] < a.tm_min_lean):
+        return False
+    if a.tm_min_avg_r is not None and row["avg_R"] < a.tm_min_avg_r:
+        return False
+    if a.tm_min_hist_r is not None and (row["hist_avg_R"] is None or row["hist_avg_R"] < a.tm_min_hist_r):
+        return False
+    return True
+
+
 # ---------------------------------------------------------------- the replay
 
 def run(universe, a, cfg):
@@ -141,6 +170,7 @@ def run(universe, a, cfg):
     equity = float(a.capital)
     trades, daily = [], []
     stop_rule = "or_low" if a.stop in ("or-low", "or_low", "low") else "or_mid"
+    tmc = load_tm_cache(a)
     last_close = {}                        # previous session's close, for the gap filter
     for day in days:
         book = {s: universe[s][day] for s in universe if day in universe[s]}
@@ -198,6 +228,8 @@ def run(universe, a, cfg):
                         continue                   # e.g. --max-gap -1: only stocks that opened 1 %+ lower
                     if a.min_gap is not None and (g is None or g < a.min_gap):
                         continue
+                    if tmc is not None and not tm_ok(tmc.get((s, day)), slot, a):
+                        continue                   # the time machine's verdict says no (or it had no verdict)
                     hits.append(s)
             if pos or not hits or slot < first_slot or slot > last_entry_slot:
                 continue
@@ -313,6 +345,10 @@ def main(argv=None):
     ap.add_argument("--max-gap", type=float, help="only stocks whose open gapped at most this %% from the "
                     "previous close (e.g. -1: opened 1 %% or more lower)")
     ap.add_argument("--min-gap", type=float, help="only stocks whose open gapped at least this %%")
+    ap.add_argument("--tm-cache", help="tm_signals.py output: trade a signal only on the time machine's say-so")
+    ap.add_argument("--tm-min-lean", type=float, help="time machine lean (target share minus break-even) at least")
+    ap.add_argument("--tm-min-avg-r", type=float, help="time machine Monte Carlo average R at least")
+    ap.add_argument("--tm-min-hist-r", type=float, help="time machine history replay average R at least")
     ap.add_argument("--margin", type=float, default=1.0, help="buying power as a multiple of equity (MIS: 5)")
     ap.add_argument("--max-loss-pct", type=float, default=1.0, help="max loss a trade, %% of the capital (1)")
     ap.add_argument("--daily-loss-pct", type=float, default=3.0, help="max loss a day, %% of the capital (3)")

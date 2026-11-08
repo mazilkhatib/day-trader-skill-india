@@ -59,6 +59,27 @@ rate-limit: pause between requests.
 One position at a time: one account, cash only unless `--margin`. The account
 compounds: each trade is sized from the equity as it stands.
 
+## With the time machine as a filter
+
+`tm_signals.py` runs trader-timemachine on every signal, walk-forward, and caches
+its verdict; `backtest.py --tm-cache` then takes a signal only when the verdict
+passes the thresholds you set.
+
+```bash
+python3 "${CLAUDE_SKILL_DIR}/tm_signals.py" --data DIR --out tm.json --stop or-mid --target 2R   # ~0.4 s a signal
+python3 "${CLAUDE_SKILL_DIR}/backtest.py" --data DIR --capital 15000 --tm-cache tm.json --tm-min-lean 0.05
+```
+
+- The pool is the stock's last 59 full sessions strictly before the signal's day
+  (what a live `range=60d` fetch sees): nothing after the entry bar is used.
+- 10,000 replays to 15:15 (the flat-by), seed 19, window 2: the pack's defaults.
+- `--tm-min-lean`: the target's share of the replays that hit a side minus
+  break-even; `--tm-min-avg-r`: the Monte Carlo average R; `--tm-min-hist-r`: the
+  history replay's average R on those 59 sessions.
+- No verdict (under 20 past sessions) means no trade, as the live tool refuses.
+- The cache records its stop, target and slippage; a backtest with other
+  settings refuses it.
+
 ## Defaults for a small account
 
 | flag | default | meaning |
