@@ -339,6 +339,14 @@ class Exits(unittest.TestCase):
         res = check.check([self.SELL], cfg(), now=at(NOW))
         self.assertIn("record the fill first", reasons(res))
 
+    def test_nse_symbols_pass_the_asset_check(self):
+        for sym in ("RELIANCE", "M&M", "BAJAJ-AUTO", "3MINDIA", "ICICIBANK"):
+            res = check.check([bracket(sym, 1, 100.0, 99.0, 102.0)], cfg(), prices={sym: 100.0}, now=at(NOW))
+            self.assertNotIn("asset:", reasons(res), sym)
+        for sym in ("BTC/USD", "123", "TOO-LONG-A-SYMBOL-FOR-NSE"):
+            res = check.check([bracket(sym, 1, 100.0, 99.0, 102.0)], cfg(), prices={sym: 100.0}, now=at(NOW))
+            self.assertIn("asset:", reasons(res), sym)
+
     def test_buy_then_sell_in_one_batch(self):
         res = check.check([tsla(), self.SELL], cfg(), now=at(NOW))
         self.assertEqual(verdicts(res), ["PASS", "PASS"])

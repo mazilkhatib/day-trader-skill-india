@@ -84,7 +84,8 @@ PRICE_FIELDS = ("qty", "notional", "limit_price", "stop_price", "take_profit_lim
 TYPES = {"market", "limit", "stop", "stop_limit", "trailing_stop"}
 TIFS = {"day", "gtc", "opg", "cls", "ioc", "fok"}
 OCC = re.compile(r"^[A-Z]{1,6}\d{6}[CP]\d{8}$")
-TICKER = re.compile(r"^[A-Z]{1,5}([.\-][A-Z]{1,2})?$")
+# NSE symbols: up to 20 of A-Z, 0-9, & and - (RELIANCE, M&M, BAJAJ-AUTO, 3MINDIA), at least one letter
+TICKER = re.compile(r"^(?=.*[A-Z])[A-Z0-9][A-Z0-9&\-]{0,19}$")
 HHMM = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
 CENT = 0.005
 FRESH_MINUTES = 15
@@ -468,7 +469,7 @@ def check(orders, cfg, portfolio=None, prices=None, state=None, today=None, now=
             else:
                 warns.append("option order: options can lose 100%% of what you pay")
         elif sym and ("/" in sym or not TICKER.match(sym)):
-            reasons.append("asset: %s does not look like a US stock or ETF ticker; "
+            reasons.append("asset: %s does not look like an NSE stock or ETF symbol; "
                            "this pack trades stocks and ETFs only" % sym)
 
         # the reference price: what one share costs to get in
